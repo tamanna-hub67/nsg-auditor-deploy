@@ -1,0 +1,167 @@
+{
+    "id": "NSGAuditorLogicAppTemplate",
+    "title": "NSGAuditorLogicAppTemplate",
+    "description": "ARM template to deploy NSG Auditor Logic App with email alerts",
+    "iconType": "ScheduledTask",
+    "skuType": "Consumption",
+    "data": {
+        "definition": {
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+                "$connections": {
+                    "defaultValue": {},
+                    "type": "Object"
+                }
+            },
+            "triggers": {
+                "Recurrence": {
+                    "recurrence": {
+                        "interval": 3,
+                        "frequency": "Day"
+                    },
+                    "evaluatedRecurrence": {
+                        "interval": 3,
+                        "frequency": "Day"
+                    },
+                    "type": "Recurrence"
+                }
+            },
+            "actions": {
+                "HTTP": {
+                    "runAfter": {},
+                    "type": "Http",
+                    "inputs": {
+                        "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01",
+                        "method": "POST",
+                        "headers": {
+                            "Content-Type": "application/json"
+                        },
+                        "body": {
+                            "subscriptions": [
+                                "5e19fa94-ad84-4949-913f-c4483b86eb2f"
+                            ],
+                            "query": "Resources | where type == \"microsoft.network/networksecuritygroups\" | extend nsgRules = properties.securityRules | mv-expand nsgRules | where nsgRules.properties.direction == \"Inbound\" | where nsgRules.properties.sourceAddressPrefix == \"*\" | where nsgRules.properties.access == \"Allow\" | project subscriptionId, resourceGroup, nsgName = name, ruleName = nsgRules.name"
+                        },
+                        "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://management.azure.com/"
+                        }
+                    },
+                    "runtimeConfiguration": {
+                        "contentTransfer": {
+                            "transferMode": "Chunked"
+                        }
+                    }
+                },
+                "Parse_JSON": {
+                    "runAfter": {
+                        "HTTP": [
+                            "Succeeded"
+                        ]
+                    },
+                    "type": "ParseJson",
+                    "inputs": {
+                        "content": "@body('HTTP')\n",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "totalRecords": {
+                                    "type": "integer"
+                                },
+                                "count": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "subscriptionId": {
+                                                "type": "string"
+                                            },
+                                            "resourceGroup": {
+                                                "type": "string"
+                                            },
+                                            "nsgName": {
+                                                "type": "string"
+                                            },
+                                            "ruleName": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "subscriptionId",
+                                            "resourceGroup",
+                                            "nsgName",
+                                            "ruleName"
+                                        ]
+                                    }
+                                },
+                                "facets": {
+                                    "type": "array"
+                                },
+                                "resultTruncated": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "data"
+                            ]
+                        }
+                    }
+                },
+                "Condition": {
+                    "actions": {
+                        "Send_an_email_(V2)": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['outlook']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "body": {
+                                    "To": "kausertamanna50@outlook.com",
+                                    "Subject": "⚠️ Risky NSG Rule Detected!\n",
+                                    "Body": "<p class=\"editor-paragraph\">Hey there 👋,<br><br>Your Azure Security Auditor just spotted something that needs your attention:<br><br>⚠️ A risky inbound NSG rule has been detected that allows traffic from anywhere (*)</p><br><p class=\"editor-paragraph\">– Tamanna’s Logic App Bot 🤖</p><br>",
+                                    "Importance": "Normal"
+                                },
+                                "path": "/v2/Mail"
+                            }
+                        }
+                    },
+                    "runAfter": {
+                        "Parse_JSON": [
+                            "Succeeded"
+                        ]
+                    },
+                    "else": {
+                        "actions": {}
+                    },
+                    "expression": {
+                        "and": [
+                            {
+                                "greater": [
+                                    "@int(length(body('Parse_JSON')?['data']))\r\n",
+                                    0
+                                ]
+                            }
+                        ]
+                    },
+                    "type": "If"
+                }
+            },
+            "outputs": {}
+        },
+        "parameters": {},
+        "connections": {
+            "outlook": {
+                "id": "/subscriptions/0000-0000/providers/Microsoft.Web/locations/centralindia/managedApis/outlook",
+                "connectionId": "",
+                "connectionName": ""
+            }
+        }
+    }
+}
